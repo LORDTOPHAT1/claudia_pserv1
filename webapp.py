@@ -380,49 +380,33 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .input-field-wrap input[type="text"]:focus { outline: none; }
 
-.input-waveform {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 120ms ease;
-}
-.input-waveform.active { opacity: 1; }
+/* --- waveform strip: always visible, sits above the typing row, a plain
+   still line at rest, a faint red glow along its bottom edge while
+   listening/recording --- */
 
-.input-loader {
-    position: absolute;
-    left: 0.6em;
-    top: 50%;
-    transform: translateY(-50%);
-    display: none;
-}
-.input-loader.active { display: inline-block; }
-
-.loader {
-    display: inline-block;
-    width: 3.2em;
-    height: 0.55em;
+.claudia-waveform-bar {
+    flex-shrink: 0;
+    height: 2.6em;
+    border-bottom: 1px solid var(--line);
     background: var(--surface-2);
-    border: 1px solid var(--line);
-    position: relative;
-    overflow: hidden;
-    vertical-align: middle;
+    transition: box-shadow 200ms ease;
 }
-.loader::after {
-    content: "";
-    position: absolute;
-    top: 0; bottom: 0; left: -40%;
-    width: 40%;
-    background: var(--accent);
-    animation: scan 1.1s linear infinite;
+.claudia-waveform-bar canvas { display: block; width: 100%; height: 100%; }
+.claudia-waveform-bar.listening {
+    box-shadow: inset 0 -10px 14px -8px rgba(163, 57, 61, 0.55);
 }
-.loader-inline { width: 2.2em; }
 
-@keyframes scan { 0% { left: -40%; } 100% { left: 100%; } }
+/* --- badge strip: below the typing row, shows the Claudia logo tracking
+   waiting / idle / speaking for the live exchange --- */
 
-@media (prefers-reduced-motion: reduce) {
-    .loader::after { animation: none; left: 30%; }
+.claudia-status-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border-top: 1px solid var(--line);
 }
+.claudia-badge-mount { display: flex; }
 
 section.general-settings, section.import-panel, section.logo-settings {
     display: flex;
@@ -507,11 +491,13 @@ def home():
                 <div class="chat-frame">
                     <div id="chat-log" class="chat-log"></div>
 
+                    <div id="claudia-waveform-bar" class="claudia-waveform-bar">
+                        <canvas id="input-waveform"></canvas>
+                    </div>
+
                     <div class="input-row">
                         <div class="input-field-wrap">
                             <input type="text" id="message-input" placeholder="say something" autocomplete="off">
-                            <canvas id="input-waveform" class="input-waveform"></canvas>
-                            <span id="input-loader" class="loader input-loader"></span>
                         </div>
 
                         <div class="mic-control-group">
@@ -544,6 +530,10 @@ def home():
                         </div>
 
                         <button class="btn-accent" onclick="sendMessage()" type="button">SEND</button>
+                    </div>
+
+                    <div id="claudia-status-bar" class="claudia-status-bar">
+                        <div id="claudia-badge-mount" class="claudia-badge-mount"></div>
                     </div>
                 </div>
             </main>
@@ -781,23 +771,41 @@ def home():
         }
 
         // --- Waveform visualizer: a single moving line, no grid/background,
-        // shared between live and accurate mode since only one captures at a time ---
+        // shared between live and accurate mode since only one captures at a
+        // time. Lives in its own always-visible strip above the typing row:
+        // a still flat line at rest, the strip glows along its bottom edge
+        // while listening. ---
 
         function createWaveformVisualizer(canvasId) {
             let audioContext, analyser, animationId;
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext("2d");
+            const bar = canvas.parentElement;
 
             function sizeToParent() {
-                const rect = canvas.parentElement.getBoundingClientRect();
+                const rect = bar.getBoundingClientRect();
                 canvas.width = rect.width;
                 canvas.height = rect.height;
             }
 
+            function drawFlatLine() {
+                sizeToParent();
+                ctx.fillStyle = "#1a1a1e";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = "#45454c";
+                ctx.beginPath();
+                ctx.moveTo(0, canvas.height / 2);
+                ctx.lineTo(canvas.width, canvas.height / 2);
+                ctx.stroke();
+            }
+
+            drawFlatLine();
+
             return {
                 start(stream) {
                     sizeToParent();
-                    canvas.classList.add("active");
+                    bar.classList.add("listening");
 
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     const source = audioContext.createMediaStreamSource(stream);
@@ -834,8 +842,8 @@ def home():
                 stop() {
                     if (animationId) cancelAnimationFrame(animationId);
                     if (audioContext) audioContext.close();
-                    canvas.classList.remove("active");
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    bar.classList.remove("listening");
+                    drawFlatLine();
                 }
             };
         }
@@ -1016,7 +1024,9 @@ def home():
             idleSpeed: "°/s", waitingSpeed: "°/s", speakingSpeed: "°/s", speakingSwell: "%",
         };
 
-        let headerLogo, previewLogo, previewAmpTimer;
+        const STATUS_BADGE_SIZE = 50;
+
+        let headerLogo, statusLogo, previewLogo, previewAmpTimer;
         let workingLogoSettings = Object.assign({}, LOGO_DEFAULTS);
 
         function applyLogoSettingsToForm(settings) {
@@ -1035,6 +1045,7 @@ def home():
             });
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
+            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         function setLogoWeightMode(even) {
@@ -1043,6 +1054,7 @@ def home():
             document.getElementById("logo-weight-even-btn").classList.toggle("active", even);
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
+            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         function previewLogoState(state) {
@@ -1076,6 +1088,7 @@ def home():
             applyLogoSettingsToForm(workingLogoSettings);
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
+            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         async function initLogo() {
@@ -1093,7 +1106,11 @@ def home():
 
             headerLogo = createClaudiaLogo(document.getElementById("claudia-logo-mount"),
                 Object.assign({}, workingLogoSettings, { color: "gradient" }));
-            headerLogo.setState("idle");
+            headerLogo.setState("static");
+
+            statusLogo = createClaudiaLogo(document.getElementById("claudia-badge-mount"),
+                Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE, color: "gradient" }));
+            statusLogo.setState("idle");
 
             previewLogo = createClaudiaLogo(document.getElementById("logo-preview-mount"),
                 Object.assign({}, workingLogoSettings, { color: "gradient" }));
@@ -1156,8 +1173,6 @@ def home():
             formData.append("audio", fileOrBlob, filename);
             const icon = document.getElementById("mic-icon-btn");
             const input = document.getElementById("message-input");
-            const loader = document.getElementById("input-loader");
-            loader.classList.add("active");
 
             try {
                 const response = await fetch("/listen_accurate", { method: "POST", body: formData });
@@ -1175,13 +1190,12 @@ def home():
                 input.placeholder = "error transcribing";
                 setTimeout(() => { input.placeholder = original; }, 3000);
             } finally {
-                loader.classList.remove("active");
                 icon.disabled = false;
                 setMicChromeBusy(false);
             }
         }
 
-        // --- Chat: message rendering, thinking indicator, read-aloud with a loading guard ---
+        // --- Chat: message rendering, read-aloud driving the badge's speaking state ---
 
         function appendUserMessage(text) {
             const log = document.getElementById("chat-log");
@@ -1202,25 +1216,6 @@ def home():
             log.scrollTop = log.scrollHeight;
         }
 
-        function appendThinkingRow() {
-            const log = document.getElementById("chat-log");
-            const row = document.createElement("div");
-            row.className = "msg msg-claudia";
-
-            const role = document.createElement("span");
-            role.className = "msg-role";
-            role.innerText = "CLAUDIA";
-
-            const loader = document.createElement("span");
-            loader.className = "loader";
-
-            row.appendChild(role);
-            row.appendChild(loader);
-            log.appendChild(row);
-            log.scrollTop = log.scrollHeight;
-            return row;
-        }
-
         function appendClaudiaMessage(replyText, sources) {
             const log = document.getElementById("chat-log");
             const replyId = "reply-" + Date.now();
@@ -1238,8 +1233,14 @@ def home():
             body.innerText = replyText;
 
             const speakBtn = document.createElement("button");
-            speakBtn.className = "btn-small";
-            speakBtn.innerText = "READ ALOUD";
+            speakBtn.className = "icon-btn";
+            speakBtn.type = "button";
+            speakBtn.setAttribute("aria-label", "read aloud");
+            speakBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+            </svg>`;
             speakBtn.onclick = () => speak(replyId, speakBtn);
 
             row.appendChild(role);
@@ -1273,8 +1274,7 @@ def home():
             appendUserMessage(message);
             input.value = "";
 
-            const thinkingRow = appendThinkingRow();
-            if (headerLogo) headerLogo.setState("waiting");
+            if (statusLogo) statusLogo.setState("waiting");
 
             let data;
             try {
@@ -1285,14 +1285,12 @@ def home():
                 });
                 data = await response.json();
             } catch (e) {
-                thinkingRow.remove();
-                if (headerLogo) headerLogo.setState("idle");
+                if (statusLogo) statusLogo.setState("idle");
                 appendClaudiaMessage("(error reaching claudia)", []);
                 return;
             }
 
-            thinkingRow.remove();
-            if (headerLogo) headerLogo.setState("idle");
+            if (statusLogo) statusLogo.setState("idle");
             appendClaudiaMessage(data.reply, data.sources || []);
         }
 
@@ -1321,7 +1319,7 @@ def home():
                     sumSquares += v * v;
                 }
                 const rms = Math.sqrt(sumSquares / data.length);
-                if (headerLogo) headerLogo.setAmplitude(Math.min(1, rms * 4));
+                if (statusLogo) statusLogo.setAmplitude(Math.min(1, rms * 4));
                 rafId = requestAnimationFrame(pump);
             }
 
@@ -1329,7 +1327,7 @@ def home():
                 if (stopped) return;
                 stopped = true;
                 cancelAnimationFrame(rafId);
-                if (headerLogo) { headerLogo.setAmplitude(0); headerLogo.setState("idle"); }
+                if (statusLogo) { statusLogo.setAmplitude(0); statusLogo.setState("idle"); }
             }
 
             audio.addEventListener("ended", stopTracking);
@@ -1337,16 +1335,14 @@ def home():
             pump();
         }
 
-        // speakButton is disabled and shown as a loader for the duration of the
-        // request so a second click during generation can't fire a second,
-        // overlapping playback.
+        // speakButton is disabled for the duration of the synthesis request
+        // so a second click during generation can't fire a second, overlapping
+        // playback. The icon itself doesn't change; :disabled dims it.
         async function speak(replyId, speakButton) {
             const text = window["text-" + replyId];
             if (!text) return;
 
             speakButton.disabled = true;
-            const originalLabel = speakButton.innerText;
-            speakButton.innerHTML = "<span class='loader loader-inline'></span>";
 
             try {
                 const response = await fetch("/speak", {
@@ -1358,14 +1354,13 @@ def home():
                 const url = URL.createObjectURL(blob);
                 const audio = new Audio(url);
                 attachSpeakingAnalyser(audio);
-                if (headerLogo) headerLogo.setState("speaking");
+                if (statusLogo) statusLogo.setState("speaking");
                 audio.play();
             } catch (e) {
                 console.error("Speak error", e);
-                if (headerLogo) headerLogo.setState("idle");
+                if (statusLogo) statusLogo.setState("idle");
             } finally {
                 speakButton.disabled = false;
-                speakButton.innerText = originalLabel;
             }
         }
 
