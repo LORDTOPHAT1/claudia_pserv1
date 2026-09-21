@@ -323,6 +323,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 .msg-badge { flex-basis: 100%; margin-top: var(--space-1); display: flex; }
+.msg-controls { display: inline-flex; gap: 0.2em; }
 
 .input-row {
     display: flex;
@@ -1232,19 +1233,29 @@ def home():
             body.id = replyId;
             body.innerText = replyText;
 
-            const speakBtn = document.createElement("button");
-            speakBtn.className = "icon-btn";
-            speakBtn.type = "button";
-            speakBtn.setAttribute("aria-label", "read aloud");
-            speakBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            </svg>`;
-            speakBtn.onclick = () => speak(replyId, speakBtn);
+            const controls = document.createElement("span");
+            controls.className = "msg-controls";
+
+            const playBtn = document.createElement("button");
+            playBtn.className = "icon-btn";
+            playBtn.type = "button";
+            playBtn.setAttribute("aria-label", "read aloud");
+            playBtn.innerHTML = SPEAKER_ICON_SVG;
+            playBtn.onclick = () => togglePlayback(replyId);
+
+            const rewindBtn = document.createElement("button");
+            rewindBtn.className = "icon-btn";
+            rewindBtn.type = "button";
+            rewindBtn.setAttribute("aria-label", "restart audio");
+            rewindBtn.innerHTML = REWIND_ICON_SVG;
+            rewindBtn.hidden = true;
+            rewindBtn.onclick = () => rewindPlayback(replyId);
+
+            controls.appendChild(playBtn);
+            controls.appendChild(rewindBtn);
 
             row.insertBefore(body, badgeMount);
-            row.insertBefore(speakBtn, badgeMount);
+            row.insertBefore(controls, badgeMount);
 
             if (sources && sources.length > 0) {
                 const srcDiv = document.createElement("div");
@@ -1266,6 +1277,8 @@ def home():
             log.scrollTop = log.scrollHeight;
             window["text-" + replyId] = replyText;
             window["logo-" + replyId] = badgeLogo;
+            window["playBtn-" + replyId] = playBtn;
+            window["rewindBtn-" + replyId] = rewindBtn;
         }
 
         async function sendMessage() {
@@ -1296,7 +1309,8 @@ def home():
 
         // --- Speaking amplitude: route Read aloud playback through the Web
         // Audio API so the logo's speaking state follows the real voice
-        // instead of a fake animation. ---
+        // instead of a fake animation. Hooked to play/pause rather than a
+        // one-shot lifecycle, so it keeps working across pause/resume. ---
 
         let claudiaAudioCtx;
 
@@ -1309,7 +1323,7 @@ def home():
             analyser.connect(claudiaAudioCtx.destination);
 
             const data = new Uint8Array(analyser.fftSize);
-            let rafId, stopped = false;
+            let rafId = null;
 
             function pump() {
                 analyser.getByteTimeDomainData(data);
@@ -1323,28 +1337,52 @@ def home():
                 rafId = requestAnimationFrame(pump);
             }
 
-            function stopTracking() {
-                if (stopped) return;
-                stopped = true;
-                cancelAnimationFrame(rafId);
+            function stopPumping() {
+                if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
                 if (badgeLogo) { badgeLogo.setAmplitude(0); badgeLogo.setState("idle"); }
             }
 
-            audio.addEventListener("ended", stopTracking);
-            audio.addEventListener("pause", stopTracking);
-            pump();
+            audio.addEventListener("play", () => {
+                if (badgeLogo) badgeLogo.setState("speaking");
+                if (rafId === null) pump();
+            });
+            audio.addEventListener("pause", stopPumping);
+            audio.addEventListener("ended", stopPumping);
         }
 
-        // speakButton is disabled for the duration of the synthesis request
-        // so a second click during generation can't fire a second, overlapping
-        // playback. The icon itself doesn't change; :disabled dims it.
-        async function speak(replyId, speakButton) {
-            const text = window["text-" + replyId];
+        const SPEAKER_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>`;
+        const PAUSE_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+        </svg>`;
+        const REWIND_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <polygon points="11 19 2 12 11 5 11 19"></polygon>
+            <polygon points="22 19 13 12 22 5 22 19"></polygon>
+        </svg>`;
+
+        // One Audio element per reply, created on first click and reused for
+        // every play/pause/rewind after that -- there is never a second
+        // fetch or a second Audio object for the same message, so overlapping
+        // duplicate playback of the same reply can't happen.
+        async function togglePlayback(replyId) {
+            const playBtn = window["playBtn-" + replyId];
+            const rewindBtn = window["rewindBtn-" + replyId];
             const badgeLogo = window["logo-" + replyId];
+            let audio = window["audio-" + replyId];
+
+            if (audio) {
+                if (audio.paused) audio.play(); else audio.pause();
+                return;
+            }
+
+            const text = window["text-" + replyId];
             if (!text) return;
 
-            speakButton.disabled = true;
-
+            playBtn.disabled = true;
             try {
                 const response = await fetch("/speak", {
                     method: "POST",
@@ -1352,17 +1390,40 @@ def home():
                     body: JSON.stringify({text: text})
                 });
                 const blob = await response.blob();
-                const url = URL.createObjectURL(blob);
-                const audio = new Audio(url);
+                audio = new Audio(URL.createObjectURL(blob));
+                window["audio-" + replyId] = audio;
                 attachSpeakingAnalyser(audio, badgeLogo);
-                if (badgeLogo) badgeLogo.setState("speaking");
+
+                audio.addEventListener("play", () => {
+                    playBtn.innerHTML = PAUSE_ICON_SVG;
+                    playBtn.setAttribute("aria-label", "pause");
+                    rewindBtn.hidden = false;
+                });
+                audio.addEventListener("pause", () => {
+                    playBtn.innerHTML = SPEAKER_ICON_SVG;
+                    playBtn.setAttribute("aria-label", "read aloud");
+                });
+                audio.addEventListener("ended", () => {
+                    audio.currentTime = 0;
+                    playBtn.innerHTML = SPEAKER_ICON_SVG;
+                    playBtn.setAttribute("aria-label", "read aloud");
+                    rewindBtn.hidden = true;
+                });
+
                 audio.play();
             } catch (e) {
                 console.error("Speak error", e);
                 if (badgeLogo) badgeLogo.setState("idle");
             } finally {
-                speakButton.disabled = false;
+                playBtn.disabled = false;
             }
+        }
+
+        function rewindPlayback(replyId) {
+            const audio = window["audio-" + replyId];
+            if (!audio) return;
+            audio.currentTime = 0;
+            audio.play();
         }
 
         document.getElementById("message-input").addEventListener("keypress", function(e) {
