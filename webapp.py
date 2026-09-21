@@ -322,6 +322,8 @@ button:disabled { opacity: 0.45; cursor: default; }
     margin-left: 5.5em;
 }
 
+.msg-badge { flex-basis: 100%; margin-top: var(--space-1); display: flex; }
+
 .input-row {
     display: flex;
     align-items: center;
@@ -395,18 +397,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .claudia-waveform-bar.listening {
     box-shadow: inset 0 -10px 14px -8px rgba(163, 57, 61, 0.55);
 }
-
-/* --- badge strip: below the typing row, shows the Claudia logo tracking
-   waiting / idle / speaking for the live exchange --- */
-
-.claudia-status-bar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    padding: var(--space-1) var(--space-2);
-    border-top: 1px solid var(--line);
-}
-.claudia-badge-mount { display: flex; }
 
 section.general-settings, section.import-panel, section.logo-settings {
     display: flex;
@@ -530,10 +520,6 @@ def home():
                         </div>
 
                         <button class="btn-accent" onclick="sendMessage()" type="button">SEND</button>
-                    </div>
-
-                    <div id="claudia-status-bar" class="claudia-status-bar">
-                        <div id="claudia-badge-mount" class="claudia-badge-mount"></div>
                     </div>
                 </div>
             </main>
@@ -1026,7 +1012,7 @@ def home():
 
         const STATUS_BADGE_SIZE = 50;
 
-        let headerLogo, statusLogo, previewLogo, previewAmpTimer;
+        let headerLogo, previewLogo, previewAmpTimer;
         let workingLogoSettings = Object.assign({}, LOGO_DEFAULTS);
 
         function applyLogoSettingsToForm(settings) {
@@ -1045,7 +1031,6 @@ def home():
             });
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
-            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         function setLogoWeightMode(even) {
@@ -1054,7 +1039,6 @@ def home():
             document.getElementById("logo-weight-even-btn").classList.toggle("active", even);
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
-            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         function previewLogoState(state) {
@@ -1088,7 +1072,6 @@ def home():
             applyLogoSettingsToForm(workingLogoSettings);
             if (previewLogo) previewLogo.updateConfig(workingLogoSettings);
             if (headerLogo) headerLogo.updateConfig(workingLogoSettings);
-            if (statusLogo) statusLogo.updateConfig(Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE }));
         }
 
         async function initLogo() {
@@ -1107,10 +1090,6 @@ def home():
             headerLogo = createClaudiaLogo(document.getElementById("claudia-logo-mount"),
                 Object.assign({}, workingLogoSettings, { color: "gradient" }));
             headerLogo.setState("static");
-
-            statusLogo = createClaudiaLogo(document.getElementById("claudia-badge-mount"),
-                Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE, color: "gradient" }));
-            statusLogo.setState("idle");
 
             previewLogo = createClaudiaLogo(document.getElementById("logo-preview-mount"),
                 Object.assign({}, workingLogoSettings, { color: "gradient" }));
@@ -1216,16 +1195,37 @@ def home():
             log.scrollTop = log.scrollHeight;
         }
 
-        function appendClaudiaMessage(replyText, sources) {
+        // A Claudia row is created in "waiting" state as soon as a message is
+        // sent (badge only, no text yet) and finalized in place once the
+        // reply arrives, so the badge under it carries straight through
+        // waiting -> idle -> (on read-aloud) speaking without ever moving.
+        function appendThinkingRow() {
             const log = document.getElementById("chat-log");
-            const replyId = "reply-" + Date.now();
-
             const row = document.createElement("div");
             row.className = "msg msg-claudia";
 
             const role = document.createElement("span");
             role.className = "msg-role";
             role.innerText = "CLAUDIA";
+
+            const badgeMount = document.createElement("div");
+            badgeMount.className = "msg-badge";
+
+            row.appendChild(role);
+            row.appendChild(badgeMount);
+            log.appendChild(row);
+            log.scrollTop = log.scrollHeight;
+
+            const badgeLogo = createClaudiaLogo(badgeMount,
+                Object.assign({}, workingLogoSettings, { size: STATUS_BADGE_SIZE, color: "gradient" }));
+            badgeLogo.setState("waiting");
+
+            return { row, badgeMount, badgeLogo };
+        }
+
+        function finalizeClaudiaMessage(thinking, replyText, sources) {
+            const { row, badgeMount, badgeLogo } = thinking;
+            const replyId = "reply-" + Date.now();
 
             const body = document.createElement("span");
             body.className = "msg-text";
@@ -1243,9 +1243,8 @@ def home():
             </svg>`;
             speakBtn.onclick = () => speak(replyId, speakBtn);
 
-            row.appendChild(role);
-            row.appendChild(body);
-            row.appendChild(speakBtn);
+            row.insertBefore(body, badgeMount);
+            row.insertBefore(speakBtn, badgeMount);
 
             if (sources && sources.length > 0) {
                 const srcDiv = document.createElement("div");
@@ -1258,12 +1257,15 @@ def home():
                     a.innerText = src;
                     srcDiv.appendChild(a);
                 });
-                row.appendChild(srcDiv);
+                row.insertBefore(srcDiv, badgeMount);
             }
 
-            log.appendChild(row);
+            badgeLogo.setState("idle");
+
+            const log = document.getElementById("chat-log");
             log.scrollTop = log.scrollHeight;
             window["text-" + replyId] = replyText;
+            window["logo-" + replyId] = badgeLogo;
         }
 
         async function sendMessage() {
@@ -1274,7 +1276,7 @@ def home():
             appendUserMessage(message);
             input.value = "";
 
-            if (statusLogo) statusLogo.setState("waiting");
+            const thinking = appendThinkingRow();
 
             let data;
             try {
@@ -1285,13 +1287,11 @@ def home():
                 });
                 data = await response.json();
             } catch (e) {
-                if (statusLogo) statusLogo.setState("idle");
-                appendClaudiaMessage("(error reaching claudia)", []);
+                finalizeClaudiaMessage(thinking, "(error reaching claudia)", []);
                 return;
             }
 
-            if (statusLogo) statusLogo.setState("idle");
-            appendClaudiaMessage(data.reply, data.sources || []);
+            finalizeClaudiaMessage(thinking, data.reply, data.sources || []);
         }
 
         // --- Speaking amplitude: route Read aloud playback through the Web
@@ -1300,7 +1300,7 @@ def home():
 
         let claudiaAudioCtx;
 
-        function attachSpeakingAnalyser(audio) {
+        function attachSpeakingAnalyser(audio, badgeLogo) {
             if (!claudiaAudioCtx) claudiaAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const source = claudiaAudioCtx.createMediaElementSource(audio);
             const analyser = claudiaAudioCtx.createAnalyser();
@@ -1319,7 +1319,7 @@ def home():
                     sumSquares += v * v;
                 }
                 const rms = Math.sqrt(sumSquares / data.length);
-                if (statusLogo) statusLogo.setAmplitude(Math.min(1, rms * 4));
+                if (badgeLogo) badgeLogo.setAmplitude(Math.min(1, rms * 4));
                 rafId = requestAnimationFrame(pump);
             }
 
@@ -1327,7 +1327,7 @@ def home():
                 if (stopped) return;
                 stopped = true;
                 cancelAnimationFrame(rafId);
-                if (statusLogo) { statusLogo.setAmplitude(0); statusLogo.setState("idle"); }
+                if (badgeLogo) { badgeLogo.setAmplitude(0); badgeLogo.setState("idle"); }
             }
 
             audio.addEventListener("ended", stopTracking);
@@ -1340,6 +1340,7 @@ def home():
         // playback. The icon itself doesn't change; :disabled dims it.
         async function speak(replyId, speakButton) {
             const text = window["text-" + replyId];
+            const badgeLogo = window["logo-" + replyId];
             if (!text) return;
 
             speakButton.disabled = true;
@@ -1353,12 +1354,12 @@ def home():
                 const blob = await response.blob();
                 const url = URL.createObjectURL(blob);
                 const audio = new Audio(url);
-                attachSpeakingAnalyser(audio);
-                if (statusLogo) statusLogo.setState("speaking");
+                attachSpeakingAnalyser(audio, badgeLogo);
+                if (badgeLogo) badgeLogo.setState("speaking");
                 audio.play();
             } catch (e) {
                 console.error("Speak error", e);
-                if (statusLogo) statusLogo.setState("idle");
+                if (badgeLogo) badgeLogo.setState("idle");
             } finally {
                 speakButton.disabled = false;
             }
