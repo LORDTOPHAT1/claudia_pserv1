@@ -353,10 +353,16 @@ button:disabled { opacity: 0.45; cursor: default; }
     line-height: 1.5;
     color: var(--text);
     padding: 0.4em 0.6em;
-    max-height: 9em;
+    max-height: 12.8em; /* ~8 lines at line-height 1.5 + top/bottom padding */
     overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-bright) transparent;
 }
 #message-input:focus { outline: none; }
+#message-input::-webkit-scrollbar { width: 8px; }
+#message-input::-webkit-scrollbar-track { background: transparent; }
+#message-input::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: 4px; }
+#message-input::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 .composer-controls-row {
     display: flex;
