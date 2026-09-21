@@ -506,6 +506,15 @@ def home():
                         </div>
 
                         <div class="composer-controls-row">
+                            <button class="icon-btn plus-btn" type="button" aria-label="attach file (coming soon)" title="coming soon">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+
+                            <div class="composer-controls-spacer"></div>
+
                             <div class="mic-control-group">
                                 <button class="icon-btn" id="mic-icon-btn" onclick="handleMicClick()" aria-label="toggle microphone" type="button">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -536,15 +545,6 @@ def home():
                                 <button type="button" id="mode-live-btn" class="toggle-btn active" onclick="setSttMode('live')">LIVE</button>
                                 <button type="button" id="mode-accurate-btn" class="toggle-btn" onclick="setSttMode('accurate')">ACC</button>
                             </div>
-
-                            <div class="composer-controls-spacer"></div>
-
-                            <button class="icon-btn plus-btn" type="button" aria-label="attach file (coming soon)" title="coming soon">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                                </svg>
-                            </button>
                         </div>
                     </div>
                 </div>
