@@ -325,16 +325,48 @@ button:disabled { opacity: 0.45; cursor: default; }
 .msg-badge { flex-basis: 100%; margin-top: var(--space-1); display: flex; }
 .msg-controls { display: inline-flex; gap: 0.2em; }
 
-.input-row {
+/* --- composer: a growing text row on top, a controls "dashboard" row
+   below it (mic/mode/waveform on the left, a file-attach placeholder on
+   the right) --- */
+
+.composer {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.composer-text-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-1);
+    padding: var(--space-2);
+}
+.composer-text-row:focus-within { background: var(--surface-2); }
+
+#message-input {
+    flex: 1;
+    resize: none;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    padding: 0.4em 0.6em;
+    max-height: 9em;
+    overflow-y: hidden;
+}
+#message-input:focus { outline: none; }
+
+.composer-controls-row {
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding: var(--space-2);
-    position: relative;
+    padding: 0 var(--space-2) var(--space-2);
 }
-.input-row:focus-within { background: var(--surface-2); }
+.composer-controls-spacer { flex: 1; }
 
-/* mic icon + device arrow + mode toggle, inline beside the input */
+/* mic icon + device arrow + mode toggle + mini waveform */
 
 .icon-btn {
     display: inline-flex;
@@ -349,7 +381,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .icon-btn.active { color: var(--accent-bright); }
 .icon-btn svg { display: block; }
 
-.mic-control-group { position: relative; display: flex; align-items: center; }
+.plus-btn { border-color: var(--line); }
+
+.mic-control-group { position: relative; display: flex; align-items: center; gap: 0.3em; }
 
 .mic-popover {
     position: absolute;
@@ -373,31 +407,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .toggle-btn + .toggle-btn { border-left: 1px solid var(--line); }
 .toggle-btn.active { background: var(--accent-dim); color: var(--accent-bright); }
 
-.input-field-wrap { position: relative; flex: 1; }
-
-.input-field-wrap input[type="text"] {
-    width: 100%;
-    border: none;
-    background: transparent;
-    padding: 0.5em 0.6em;
-}
-.input-field-wrap input[type="text"]:focus { outline: none; }
-
-/* --- waveform strip: always visible, sits above the typing row, a plain
-   still line at rest, a faint red glow along its bottom edge while
-   listening/recording --- */
-
-.claudia-waveform-bar {
-    flex-shrink: 0;
-    height: 2.6em;
-    border-bottom: 1px solid var(--line);
-    background: var(--surface-2);
-    transition: box-shadow 200ms ease;
-}
-.claudia-waveform-bar canvas { display: block; width: 100%; height: 100%; }
-.claudia-waveform-bar.listening {
-    box-shadow: inset 0 -10px 14px -8px rgba(163, 57, 61, 0.55);
-}
+.mini-waveform { width: 64px; height: 22px; display: none; flex-shrink: 0; }
+.mini-waveform.active { display: block; }
 
 section.general-settings, section.import-panel, section.logo-settings {
     display: flex;
@@ -482,45 +493,53 @@ def home():
                 <div class="chat-frame">
                     <div id="chat-log" class="chat-log"></div>
 
-                    <div id="claudia-waveform-bar" class="claudia-waveform-bar">
-                        <canvas id="input-waveform"></canvas>
-                    </div>
-
-                    <div class="input-row">
-                        <div class="input-field-wrap">
-                            <input type="text" id="message-input" placeholder="say something" autocomplete="off">
+                    <div class="composer">
+                        <div class="composer-text-row">
+                            <textarea id="message-input" placeholder="say something" rows="1" autocomplete="off"></textarea>
+                            <button class="btn-accent" onclick="sendMessage()" type="button">SEND</button>
                         </div>
 
-                        <div class="mic-control-group">
-                            <button class="icon-btn" id="mic-icon-btn" onclick="handleMicClick()" aria-label="toggle microphone" type="button">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                                    <line x1="12" y1="19" x2="12" y2="23"></line>
-                                    <line x1="8" y1="23" x2="16" y2="23"></line>
-                                </svg>
-                            </button>
+                        <div class="composer-controls-row">
+                            <div class="mic-control-group">
+                                <button class="icon-btn" id="mic-icon-btn" onclick="handleMicClick()" aria-label="toggle microphone" type="button">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                                    </svg>
+                                </button>
 
-                            <button class="icon-btn" id="mic-arrow-btn" onclick="toggleMicPopover(event)" aria-label="microphone options" type="button">
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                </svg>
-                            </button>
+                                <button class="icon-btn" id="mic-arrow-btn" onclick="toggleMicPopover(event)" aria-label="microphone options" type="button">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                </button>
 
-                            <div class="mic-popover" id="mic-popover" hidden>
-                                <label class="field">
-                                    <span class="field-label">device</span>
-                                    <select id="mic-device-select"></select>
-                                </label>
+                                <div class="mic-popover" id="mic-popover" hidden>
+                                    <label class="field">
+                                        <span class="field-label">device</span>
+                                        <select id="mic-device-select"></select>
+                                    </label>
+                                </div>
+
+                                <canvas id="input-waveform" class="mini-waveform"></canvas>
                             </div>
-                        </div>
 
-                        <div class="mode-toggle" role="radiogroup" aria-label="listening mode">
-                            <button type="button" id="mode-live-btn" class="toggle-btn active" onclick="setSttMode('live')">LIVE</button>
-                            <button type="button" id="mode-accurate-btn" class="toggle-btn" onclick="setSttMode('accurate')">ACC</button>
-                        </div>
+                            <div class="mode-toggle" role="radiogroup" aria-label="listening mode">
+                                <button type="button" id="mode-live-btn" class="toggle-btn active" onclick="setSttMode('live')">LIVE</button>
+                                <button type="button" id="mode-accurate-btn" class="toggle-btn" onclick="setSttMode('accurate')">ACC</button>
+                            </div>
 
-                        <button class="btn-accent" onclick="sendMessage()" type="button">SEND</button>
+                            <div class="composer-controls-spacer"></div>
+
+                            <button class="icon-btn plus-btn" type="button" aria-label="attach file (coming soon)" title="coming soon">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </main>
@@ -759,40 +778,18 @@ def home():
 
         // --- Waveform visualizer: a single moving line, no grid/background,
         // shared between live and accurate mode since only one captures at a
-        // time. Lives in its own always-visible strip above the typing row:
-        // a still flat line at rest, the strip glows along its bottom edge
-        // while listening. ---
+        // time. Small, tucked next to the mic button, hidden until listening. ---
 
         function createWaveformVisualizer(canvasId) {
             let audioContext, analyser, animationId;
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext("2d");
-            const bar = canvas.parentElement;
-
-            function sizeToParent() {
-                const rect = bar.getBoundingClientRect();
-                canvas.width = rect.width;
-                canvas.height = rect.height;
-            }
-
-            function drawFlatLine() {
-                sizeToParent();
-                ctx.fillStyle = "#1a1a1e";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.lineWidth = 1.5;
-                ctx.strokeStyle = "#45454c";
-                ctx.beginPath();
-                ctx.moveTo(0, canvas.height / 2);
-                ctx.lineTo(canvas.width, canvas.height / 2);
-                ctx.stroke();
-            }
-
-            drawFlatLine();
+            canvas.width = 64;
+            canvas.height = 22;
 
             return {
                 start(stream) {
-                    sizeToParent();
-                    bar.classList.add("listening");
+                    canvas.classList.add("active");
 
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     const source = audioContext.createMediaStreamSource(stream);
@@ -809,7 +806,7 @@ def home():
 
                         ctx.fillStyle = "#1a1a1e";
                         ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        ctx.lineWidth = 1.5;
+                        ctx.lineWidth = 1.2;
                         ctx.strokeStyle = "#a3393d";
                         ctx.beginPath();
 
@@ -829,8 +826,8 @@ def home():
                 stop() {
                     if (animationId) cancelAnimationFrame(animationId);
                     if (audioContext) audioContext.close();
-                    bar.classList.remove("listening");
-                    drawFlatLine();
+                    canvas.classList.remove("active");
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
                 }
             };
         }
@@ -1288,6 +1285,7 @@ def home():
 
             appendUserMessage(message);
             input.value = "";
+            autoGrowMessageInput();
 
             const thinking = appendThinkingRow();
 
@@ -1426,9 +1424,32 @@ def home():
             audio.play();
         }
 
-        document.getElementById("message-input").addEventListener("keypress", function(e) {
-            if (e.key === "Enter") sendMessage();
+        // --- Composer textarea: grows with content up to a max height, then
+        // scrolls. Enter sends; Shift+Enter inserts a newline. ---
+
+        function autoGrowMessageInput() {
+            const el = document.getElementById("message-input");
+            el.style.height = "auto";
+            const maxHeight = parseFloat(getComputedStyle(el).maxHeight);
+            const needed = el.scrollHeight;
+            if (needed > maxHeight) {
+                el.style.height = maxHeight + "px";
+                el.style.overflowY = "auto";
+            } else {
+                el.style.height = needed + "px";
+                el.style.overflowY = "hidden";
+            }
+        }
+
+        const messageInputEl = document.getElementById("message-input");
+        messageInputEl.addEventListener("input", autoGrowMessageInput);
+        messageInputEl.addEventListener("keydown", function(e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
         });
+        autoGrowMessageInput();
         </script>
     """
     return render_page(body)
